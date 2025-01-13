@@ -1,246 +1,309 @@
-<!-- grid_with_charts.html -->
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dynamic Visualization with AI Input</title>
+    <title>Enhanced Dynamic Visualization</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.4.0/echarts.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.10.377/pdf.min.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
     <style>
         body {
             margin: 0;
             display: grid;
-            grid-template-columns: repeat(8, 1fr); /* 8 columns */
-            grid-auto-rows: minmax(100px, auto); /* Auto rows with a minimum height */
+            grid-template-columns: repeat(8, 1fr);
+            grid-auto-rows: minmax(100px, auto);
             gap: 5px;
             background: #f8f8f8;
-            height: 100vh; /* Full viewport height */
-            overflow-y: auto; /* Add vertical scrolling */
+            height: 100vh;
+            overflow-y: auto;
         }
 
-        .chart-container {
+        .chart-container, .detail-container, .text-box {
             background: #fff;
             border: 1px solid #ccc;
+            box-sizing: border-box;
+            padding: 10px;
+            overflow: hidden;
             display: flex;
             justify-content: center;
             align-items: center;
-            box-sizing: border-box; /* Ensure padding is included in size */
-            overflow: hidden; /* Prevent content from overflowing */
-            width: 100%; /* Match grid cell width */
-            height: 100%; /* Match grid cell height */
+        }
+
+        .detail-container {
+            background: #f0f8ff;
+            text-align: center;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        .text-box, .self-title-box {
+            background: #e6e6fa;
+            text-align: center;
+            font-size: 16px;
+            font-weight: bold;
+            width: 100%;
+        }
+
+        form {
+            grid-column: span 8;
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+            background: #fafafa;
+        }
+
+        textarea {
+            width: 90%;
+            height: 100px;
+            padding: 10px;
+            font-size: 14px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            background-color: #007bff;
+            color: #fff;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
         }
     </style>
 </head>
-<body id="chartGrid"></body>
+<body id="chartGrid">
+
+    <!-- Form to Input Article -->
+    <form id="articleForm">
+        <textarea id="articleInput" placeholder="Paste your article here..."></textarea>
+        <input type="file" id="pdfInput" accept="application/pdf">
+        <button type="submit">Generate Visualizations</button>
+    </form>
+
+    <script>
+        document.getElementById('articleForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const reportInput = document.getElementById('articleInput').value;
+            const pdfInput = document.getElementById('pdfInput').files[0];
+            
+            if (pdfInput) {
+                const reader = new FileReader();
+                reader.onload = async function () {
+                    const typedarray = new Uint8Array(this.result);
+                    const pdf = await pdfjsLib.getDocument(typedarray).promise;
+                    let text = '';
+                    for (let i = 1; i <= pdf.numPages; i++) {
+                        const page = await pdf.getPage(i);
+                        const textContent = await page.getTextContent();
+                        textContent.items.forEach(item => {
+                            text += item.str + ' ';
+                        });
+                    }
+                    console.log("Extracted text from PDF:", text.trim()); // Log the extracted text
+
+                    // Pass both the name and content of the PDF
+                    await fetchVisuals(pdfInput.name, text.trim());
+                };
+                reader.readAsArrayBuffer(pdfInput);
+            } else {
+                // Handle case for text input
+                await fetchVisuals('Text Input', reportInput);
+            }
+        });
+
+    
+        async function fetchVisuals(pdfName, pdfContent) {
+            const payload = {
+                pdf_name: pdfName,  // Include the name of the PDF
+                pdf_content: pdfContent  // Include the extracted content of the PDF
+            };
+
+            const response = await fetch('http://127.0.0.1:5000/generate_visuals', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)  // Send the payload as JSON
+            });
+
+            if (response.ok) {
+                const visuals = await response.json();
+                console.log("Received visuals:", visuals); // Debugging log
+                CreateVisuals(visuals);
+            } else {
+                const error = await response.json();
+                console.error("Error from backend:", error); // Debugging log
+                alert(`Error: ${error.error}`);
+            }
+        }
+
+    </script>
 
 <script>
-    /**
-     * Visualization Templates
-     */
-    function createRadarChart(container, data, title) {
-        var chart = echarts.init(container);
-        chart.setOption({
-            title: { text: title },
-            radar: {
-                radius: '25%', // Adjust the radius to make the chart smaller
-                indicator: data.indicators
-            },
-            series: [{
-                type: 'radar',
-                data: [{
-                    value: data.values,
-                    name: title
-                }]
-            }]
-        });
-        window.addEventListener('resize', function() {
-            chart.resize();
-        });
-    }
+    function createChart(container, visual) {
+        if (visual.type === 'map') {
+            // Clear container for Leaflet map
+            container.innerHTML = '';
+            container.style.position = 'relative'; // Ensure proper layout for Leaflet
 
-    function createPieChart(container, data, title) {
-        var chart = echarts.init(container);
-        chart.setOption({
-            title: { text: title, left: 'center' },
-            series: [{
-                type: 'pie',
-                radius: '50%',
-                data: data
-            }]
-        });
-    }
+            // Create a div for Leaflet map inside the container
+            const mapDiv = document.createElement('div');
+            mapDiv.style.width = '100%';
+            mapDiv.style.height = '100%';
+            container.appendChild(mapDiv);
 
-    function createLineChart(container, data, title) {
-        var chart = echarts.init(container);
-        chart.setOption({
-            title: { text: title },
-            xAxis: { type: 'category', data: data.categories },
-            yAxis: { type: 'value' },
-            series: [{ data: data.values, type: 'line' }]
-        });
-    }
+            // Initialize Leaflet map
+            const map = L.map(mapDiv).setView(
+                [visual.data[0].latitude, visual.data[0].longitude], // Default to the first marker's coordinates
+                visual.zoom || 10 // Default zoom level, customizable via `visual.zoom`
+            );
 
-    function createScatterPlot(container, data, title) {
-        var chart = echarts.init(container);
-        chart.setOption({
-            title: { text: title },
-            xAxis: { type: 'value' },
-            yAxis: { type: 'value' },
-            series: [{ data: data, type: 'scatter', symbolSize: 10 }]
-        });
-    }
+            // Add OpenStreetMap tiles
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            }).addTo(map);
 
-    function createAreaChart(container, data, title) {
-        var chart = echarts.init(container);
-        chart.setOption({
-            title: { text: title },
-            xAxis: { type: 'category', data: data.categories },
-            yAxis: { type: 'value' },
-            series: [{
-                data: data.values,
-                type: 'line',
-                areaStyle: {}
-            }]
-        });
-    }
+            // Add markers for each data point
+            visual.data.forEach((location) => {
+                const marker = L.marker([location.latitude, location.longitude]).addTo(map);
 
-    function createHeatmap(container, data, xCategories, yCategories, title) {
-        var chart = echarts.init(container);
-        chart.setOption({
-            title: { text: title },
-            xAxis: { type: 'category', data: xCategories },
-            yAxis: { type: 'category', data: yCategories },
-            visualMap: {
-                min: 0,
-                max: 10,
-                inRange: {
-                    color: ['#313695', '#4575b4', '#74add1', '#abd9e9', '#e0f3f8', '#ffffbf', '#fee090', '#fdae61', '#f46d43', '#d73027']
-                }
-            },
-            series: [{
-                name: 'Heatmap',
-                type: 'heatmap',
-                data: data,
-                emphasis: {
-                    itemStyle: {
-                        borderColor: '#333',
-                        borderWidth: 1
-                    }
-                }
-            }]
-        });
-    }
-
-    /**
-     * Dynamic Visualization Creator
-     * @param {Array} visuals - Array of visualization objects
-     */
-    function CreateVisuals(visuals) {
-        const chartGrid = document.getElementById('chartGrid');
-
-        visuals.forEach(visual => {
-            // Create a chart container
-            const container = document.createElement('div');
-            container.className = 'chart-container';
-            container.id = visual.id;
-
-            // Set grid size (grid-column and grid-row)
-            container.style.gridColumn = `span ${visual.size.columns}`;
-            container.style.gridRow = `span ${visual.size.rows}`;
-
-            // Append to grid
-            chartGrid.appendChild(container);
-
-            // Generate the chart based on type
+                // Add a popup with the location's name and value
+                marker.bindPopup(`<strong>${location.name}</strong><br>Value: ${location.value}`);
+            });
+        } else {
+            // Default handling for other chart types (pie, line, bar)
+            const chart = echarts.init(container);
             switch (visual.type) {
-                case 'radar':
-                    createRadarChart(container, visual.data, visual.title);
-                    break;
                 case 'pie':
-                    createPieChart(container, visual.data, visual.title);
+                    chart.setOption({
+                        title: { text: visual.title, left: 'center' },
+                        series: [{ type: 'pie', radius: '50%', data: visual.data }]
+                    });
                     break;
                 case 'line':
-                    createLineChart(container, visual.data, visual.title);
+                    chart.setOption({
+                        title: { text: visual.title },
+                        xAxis: { type: 'category', data: visual.data.categories },
+                        yAxis: { type: 'value' },
+                        series: [{ type: 'line', data: visual.data.values }]
+                    });
                     break;
-                case 'scatter':
-                    createScatterPlot(container, visual.data, visual.title);
-                    break;
-                case 'area':
-                    createAreaChart(container, visual.data, visual.title);
-                    break;
-                case 'heatmap':
-                    createHeatmap(container, visual.data, visual.xCategories, visual.yCategories, visual.title);
+                case 'bar':
+                    chart.setOption({
+                        title: { text: visual.title },
+                        xAxis: { type: 'category', data: visual.data.categories },
+                        yAxis: { type: 'value' },
+                        series: [{ type: 'bar', data: visual.data.values }]
+                    });
                     break;
                 default:
                     console.error(`Unknown chart type: ${visual.type}`);
             }
+        }
+    }
+
+
+
+    function createDetailBox(container, detailText) {
+        container.textContent = detailText;
+    }
+
+    function CreateVisuals(visuals) {
+        const chartGrid = document.getElementById('chartGrid');
+        chartGrid.innerHTML = ''; // Clear existing visuals
+    
+        visuals.forEach(visual => {
+            if (visual.type === 'text-box') {
+                const textBoxContainer = document.createElement('div');
+                textBoxContainer.style.gridColumn = `span ${visual.size.columns}`;
+                textBoxContainer.style.gridRow = `span ${visual.size.rows}`;
+                textBoxContainer.style.display = 'flex';
+                textBoxContainer.style.flexDirection = 'column';
+                textBoxContainer.style.alignItems = 'center';
+            
+                if (visual.title) {
+                    const titleBox = document.createElement('div');
+                    titleBox.className = 'self-title-box';
+                    titleBox.innerHTML = `<div style="font-size: 1.5em; text-align: center;"><strong>${visual.title}</strong></div>`;
+                    textBoxContainer.appendChild(titleBox);
+                }
+            
+                const textBox = document.createElement('div');
+                textBox.className = 'text-box';
+                textBox.style.flexGrow = '1';
+                textBox.innerHTML = visual.details || '';
+                textBoxContainer.appendChild(textBox);
+            
+                chartGrid.appendChild(textBoxContainer);
+            } else {
+                const chartContainer = document.createElement('div');
+                chartContainer.className = 'chart-container';
+                chartContainer.style.gridColumn = `span ${visual.size.columns}`;
+                chartContainer.style.gridRow = `span ${visual.size.rows}`;
+                chartGrid.appendChild(chartContainer);
+            
+                // Create the chart
+                createChart(chartContainer, visual);
+            
+                // Add a description box for the chart
+                if (visual.title || visual.description) {
+                    const detailContainer = document.createElement('div');
+                    detailContainer.className = 'detail-container';
+                    detailContainer.style.gridColumn = `span ${8 - visual.size.columns}`;
+                    detailContainer.style.gridRow = `span ${visual.size.rows}`;
+                    detailContainer.style.display = 'flex';
+                    detailContainer.style.flexDirection = 'column';
+                    detailContainer.style.alignItems = 'center';
+            
+                    if (visual.title) {
+                        const titleBox = document.createElement('div');
+                        titleBox.className = 'title-box';
+                        titleBox.innerHTML = `<div style="font-size: 1.5em; text-align: center;"><strong>${visual.title}</strong></div>`;
+                        detailContainer.appendChild(titleBox);
+                    }
+            
+                    if (visual.description) {
+                        const descriptionBox = document.createElement('div');
+                        descriptionBox.className = 'description-box';
+                        descriptionBox.innerHTML = visual.description;
+                        detailContainer.appendChild(descriptionBox);
+                    }
+            
+                    chartGrid.appendChild(detailContainer);
+                }
+            }
         });
     }
 
-    /**
-     * Example: AI-defined visualizations
-     */
-    CreateVisuals([
-        {
-            id: 'chart1',
-            type: 'radar',
-            title: 'Radar Chart Example',
-            data: {
-                indicators: [
-                    { name: 'Metric A', max: 100 },
-                    { name: 'Metric B', max: 100 },
-                    { name: 'Metric C', max: 100 },
-                    { name: 'Metric D', max: 100 },
-                    { name: 'Metric E', max: 100 }
-                ],
-                values: [90, 80, 70, 60, 100]
-            },
-            size: { columns: 4, rows: 4 }
-        },
-        {
-            id: 'chart2',
-            type: 'pie',
-            title: 'Pie Chart Example',
-            data: [
-                { value: 1048, name: 'Search Engine' },
-                { value: 735, name: 'Direct' },
-                { value: 580, name: 'Email' },
-                { value: 484, name: 'Union Ads' },
-                { value: 300, name: 'Video Ads' }
-            ],
-            size: { columns: 2, rows: 4 }
-        },
-        {
-            id: 'chart3',
-            type: 'line',
-            title: 'Line Chart Example',
-            data: { categories: ['Jan', 'Feb', 'Mar', 'Apr', 'May'], values: [50, 70, 90, 110, 130] },
-            size: { columns: 6, rows: 6 }
-        },
-        {
-            id: 'chart4',
-            type: 'scatter',
-            title: 'Scatter Plot Example',
-            data: [[10, 20], [20, 30], [30, 50], [40, 80], [50, 100]],
-            size: { columns: 4, rows: 8 }
-        },
-        {
-            id: 'chart5',
-            type: 'area',
-            title: 'Area Chart Example',
-            data: { categories: ['Q1', 'Q2', 'Q3', 'Q4'], values: [120, 200, 150, 300] },
-            size: { columns: 4, rows: 6 }
-        },
-        {
-            id: 'chart6',
-            type: 'heatmap',
-            title: 'Heatmap Example',
-            data: Array.from({ length: 100 }, () => [Math.random() * 10, Math.random() * 10, Math.random() * 10]),
-            xCategories: Array.from({ length: 10 }, (_, i) => `X${i + 1}`),
-            yCategories: Array.from({ length: 10 }, (_, i) => `Y${i + 1}`),
-            size: { columns: 6, rows: 6 }
-        }
-    ]);
-</script>
+
+document.getElementById('articleForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const report = document.getElementById('articleInput').value;
+
+    console.log("Sending report:", report); // Debugging log
+
+    const response = await fetch('/generate_visuals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ report })
+    });
+
+    if (response.ok) {
+        const visuals = await response.json();
+        console.log("Received visuals:", visuals); // Debugging log
+        CreateVisuals(visuals);
+    } else {
+        const error = await response.json();
+        console.error("Error from backend:", error); // Debugging log
+        alert(`Error: ${error.error}`);
+    }
+});
+
+    </script>
+</body>
 </html>
