@@ -145,68 +145,39 @@
     </script>
 
 <script>
-    function createChart(container, visual) {
-        if (visual.type === 'map') {
-            // Clear container for Leaflet map
-            container.innerHTML = '';
-            container.style.position = 'relative'; // Ensure proper layout for Leaflet
-
-            // Create a div for Leaflet map inside the container
-            const mapDiv = document.createElement('div');
-            mapDiv.style.width = '100%';
-            mapDiv.style.height = '100%';
-            container.appendChild(mapDiv);
-
-            // Initialize Leaflet map
-            const map = L.map(mapDiv).setView(
-                [visual.data[0].latitude, visual.data[0].longitude], // Default to the first marker's coordinates
-                visual.zoom || 10 // Default zoom level, customizable via `visual.zoom`
-            );
-
-            // Add OpenStreetMap tiles
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-            }).addTo(map);
-
-            // Add markers for each data point
-            visual.data.forEach((location) => {
-                const marker = L.marker([location.latitude, location.longitude]).addTo(map);
-
-                // Add a popup with the location's name and value
-                marker.bindPopup(`<strong>${location.name}</strong><br>Value: ${location.value}`);
-            });
-        } else {
-            // Default handling for other chart types (pie, line, bar)
-            const chart = echarts.init(container);
-            switch (visual.type) {
-                case 'pie':
-                    chart.setOption({
-                        title: { text: visual.title, left: 'center' },
-                        series: [{ type: 'pie', radius: '50%', data: visual.data }]
-                    });
-                    break;
-                case 'line':
-                    chart.setOption({
-                        title: { text: visual.title },
-                        xAxis: { type: 'category', data: visual.data.categories },
-                        yAxis: { type: 'value' },
-                        series: [{ type: 'line', data: visual.data.values }]
-                    });
-                    break;
-                case 'bar':
-                    chart.setOption({
-                        title: { text: visual.title },
-                        xAxis: { type: 'category', data: visual.data.categories },
-                        yAxis: { type: 'value' },
-                        series: [{ type: 'bar', data: visual.data.values }]
-                    });
-                    break;
-                default:
-                    console.error(`Unknown chart type: ${visual.type}`);
-            }
-        }
+function createChart(container, visual) {
+    if (visual.type === 'text-box') {
+        // Render a text-box visualization
+        const textBox = document.createElement('div');
+        textBox.className = 'text-box';
+        textBox.innerHTML = `<h3>${visual.title}</h3><p>${visual.content}</p>`;
+        container.appendChild(textBox);
+    } else if (visual.type === 'pie') {
+        const chart = echarts.init(container);
+        chart.setOption({
+            title: { text: visual.title, left: 'center' },
+            series: [{ type: 'pie', radius: '50%', data: visual.data }]
+        });
+    } else if (visual.type === 'line') {
+        const chart = echarts.init(container);
+        chart.setOption({
+            title: { text: visual.title },
+            xAxis: { type: 'category', data: visual.data.categories },
+            yAxis: { type: 'value' },
+            series: [{ type: 'line', data: visual.data.values }]
+        });
+    } else if (visual.type === 'bar') {
+        const chart = echarts.init(container);
+        chart.setOption({
+            title: { text: visual.title },
+            xAxis: { type: 'category', data: visual.data.categories },
+            yAxis: { type: 'value' },
+            series: [{ type: 'bar', data: visual.data.values }]
+        });
+    } else {
+        console.error(`Unknown visualization type: ${visual.type}`);
     }
-
+}
 
 
     function createDetailBox(container, detailText) {
@@ -220,6 +191,7 @@
         visuals.forEach(visual => {
             if (visual.type === 'text-box') {
                 const textBoxContainer = document.createElement('div');
+                textBoxContainer.className = 'text-box';
                 textBoxContainer.style.gridColumn = `span ${visual.size.columns}`;
                 textBoxContainer.style.gridRow = `span ${visual.size.rows}`;
                 textBoxContainer.style.display = 'flex';
@@ -228,7 +200,7 @@
             
                 if (visual.title) {
                     const titleBox = document.createElement('div');
-                    titleBox.className = 'self-title-box';
+                    titleBox.className = 'title-box';
                     titleBox.innerHTML = `<div style="font-size: 1.5em; text-align: center;"><strong>${visual.title}</strong></div>`;
                     textBoxContainer.appendChild(titleBox);
                 }
@@ -280,30 +252,28 @@
         });
     }
 
+    document.getElementById('articleForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const report = document.getElementById('articleInput').value;
 
-document.getElementById('articleForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const report = document.getElementById('articleInput').value;
+        console.log("Sending report:", report); // Debugging log
 
-    console.log("Sending report:", report); // Debugging log
+        const response = await fetch('/generate_visuals', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ report })
+        });
 
-    const response = await fetch('/generate_visuals', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ report })
+        if (response.ok) {
+            const visuals = await response.json();
+            console.log("Received visuals:", visuals); // Debugging log
+            CreateVisuals(visuals);
+        } else {
+            const error = await response.json();
+            console.error("Error from backend:", error); // Debugging log
+            alert(`Error: ${error.error}`);
+        }
     });
-
-    if (response.ok) {
-        const visuals = await response.json();
-        console.log("Received visuals:", visuals); // Debugging log
-        CreateVisuals(visuals);
-    } else {
-        const error = await response.json();
-        console.error("Error from backend:", error); // Debugging log
-        alert(`Error: ${error.error}`);
-    }
-});
-
-    </script>
+</script>
 </body>
 </html>

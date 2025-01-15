@@ -1,29 +1,31 @@
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
-import spacy
 import openai
 import re
 
 app = Flask(__name__)
 CORS(app)
 
-openai.api_key = "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"
-nlp = spacy.load("en_core_web_sm")
+openai.api_key = "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"  # Replace with your OpenAI API key
 
 def generate_summary(text):
-    response = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",  # Use the correct model name
-        messages=[
-            {"role": "system", "content": "Summarize the given text in 100 words."},
-            {"role": "user", "content": text}
-        ]
-    )
-    print(response.choices[0].message['content'])
-    return response['choices'][0]['message']['content']
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "Summarize the given text in 100 words."},
+                {"role": "user", "content": text}
+            ]
+        )
+        summary = response['choices'][0]['message']['content']
+        print(f"Generated Summary: {summary}")
+        return summary
+    except Exception as e:
+        print(f"Error in generate_summary: {e}")
+        return "An error occurred while generating the summary."
 
 def retrieve_URL_links(text):
     try:
-        # OpenAI prompt for extracting URLs and their reasons
         prompt = (
             "Extract all URLs from the following text, together with the reason for their inclusion:\n\n"
             f"{text}\n\n"
@@ -31,150 +33,183 @@ def retrieve_URL_links(text):
             "- [title], URL: [URL]"
         )
         response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",  # Use the appropriate model
+            model="gpt-3.5-turbo",
             messages=[
                 {"role": "system", "content": "You are an assistant that extracts URLs and their corresponding title from text."},
                 {"role": "user", "content": prompt}
             ]
         )
-        # Return the AI's response as the extracted information
-        result = response['choices'][0]['message']['content']
-        print(f"Extracted URL links:\n{result}")
-        return result
+        urls = response['choices'][0]['message']['content']
+        print(f"Extracted URL Links: {urls}")
+        return urls
     except Exception as e:
         print(f"Error in retrieve_URL_links: {e}")
         return "An error occurred while extracting URLs."
 
-def retrieve_important_claims(text):
+def retrieve_important_claims(text, limit=5):
     try:
-        # OpenAI prompt for extracting top 5 important claims with numbers or achievements
         prompt = (
-            "From the following text, identify the top 5 most important claims or pieces of information, "
-            "especially those with numbers or achievements that can be visualized. Provide the results in this format:\n\n"
+            "From the following text, identify the most important claims or pieces of information, "
+            "especially those with numbers or significant achievements that can be visualized in a dashboard, or locations that can be plotted on a map. "
+            f"Limit the claims up to the top {limit}. Provide the results in this format:\n\n"
             "- [Claim 1]\n- [Claim 2]\n...\n\n"
             f"{text}"
         )
         response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",  # Use the appropriate model
+            model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": "You are an assistant that identifies important claims with numbers or achievements from text."},
+                {"role": "system", "content": "You are an assistant that identifies important claims and achievements from text."},
                 {"role": "user", "content": prompt}
             ]
         )
-        # Return the AI's response as the extracted claims
-        result = response['choices'][0]['message']['content']
-        print(f"Extracted Claims:\n{result}")
-        return result
+        claims = response['choices'][0]['message']['content'].split("\n")
+        claims = [claim.strip() for claim in claims if claim.strip()]
+        print(f"Extracted Claims: {claims}")
+        return claims[:limit]
     except Exception as e:
         print(f"Error in retrieve_important_claims: {e}")
-        return "An error occurred while extracting claims."
+        return ["An error occurred while extracting claims."]
 
+def data_assignment(claim):
+    try:
+        prompt = (
+            f"Based on the following claim, decide the best visualization type, short form title, and provide the necessary data "
+            f"for visualization using templates (pie, bar, line). "
+            f"For text-based claims without numerical data, use the text-box template. "
+            f"The response format should be:\n\n"
+            f"Visualization Type: [Type]\n"
+            f"Title: [Generated Title]\n"
+            f"Data:\n"
+            f"- For Pie: [{{'name': 'Category A', 'value': 30}}, {{'name': 'Category B', 'value': 70}}]\n"
+            f"- For Bar or Line: {{'categories': ['Category A', 'Category B'], 'values': [30, 70]}}\n"
+            f"- For Text-Box: {{'title': 'Title for the Claim', 'content': 'Claim content goes here'}}\n\n"
+            f"Claim: {claim}"
+        )
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "You are an assistant that assigns visualization types, generates titles, and provides data based on claims."},
+                {"role": "user", "content": prompt}
+            ]
+        )
+        result = response['choices'][0]['message']['content']
+        print(f"Raw Data Assignment Response for Claim '{claim}':\n{result}")  # Log raw response for debugging
 
-def process_report(report):
-    doc = nlp(report)
-    numbers = [ent.text for ent in doc.ents if ent.label_ == "CARDINAL" and re.match(r'^\d+$', ent.text)]
-    dates = [ent.text for ent in doc.ents if ent.label_ == "DATE"]
-    key_phrases = [
-        sent.text.strip() for sent in doc.sents
-        if any(keyword in sent.text.lower() for keyword in ["increase", "decrease", "revenue", "sales", "%"])
-    ]
-    return {"numbers": numbers, "dates": dates, "key_phrases": key_phrases}
+        # Parse visualization type, title, and data
+        vis_type_match = re.search(r"Visualization Type: (\w+)", result)
+        title_match = re.search(r"Title: \[([^\]]+)\]", result)
+        vis_data_match = re.search(r"Data:\s*({.+})", result, re.DOTALL)  # Look for JSON-like structures
+
+        if vis_type_match and title_match and vis_data_match:
+            vis_type = vis_type_match.group(1).strip().lower()
+            title = title_match.group(1).strip()
+            raw_data = vis_data_match.group(1).strip()
+
+            if vis_type == "text-box":
+                try:
+                    text_data = eval(raw_data)  # Convert JSON-like string to Python dict
+                    if isinstance(text_data, dict) and "title" in text_data and "content" in text_data:
+                        return {
+                            "type": "text-box",
+                            "title": text_data["title"],
+                            "content": text_data["content"]
+                        }
+                except Exception as e:
+                    print(f"Error parsing text-box data: {e}")
+
+            elif vis_type == "pie":
+                try:
+                    data = eval(raw_data)  # Convert to Python
+                    if isinstance(data, list):
+                        return {"type": "pie", "title": title, "data": data}
+                except Exception as e:
+                    print(f"Error parsing pie chart data: {e}")
+
+            elif vis_type in ["bar", "line"]:
+                try:
+                    data = eval(raw_data)
+                    if isinstance(data, dict) and "categories" in data and "values" in data:
+                        return {"type": vis_type, "title": title, "data": data}
+                except Exception as e:
+                    print(f"Error parsing bar/line chart data: {e}")
+
+        # Log invalid format before fallback
+        print(f"Invalid response format from OpenAI:\n{result}")
+        raise ValueError("Invalid response format from OpenAI.")
+
+    except Exception as e:
+        print(f"Error in data_assignment: {e}")
+        return {
+            "type": "text-box",
+            "title": "Unparsed Claim",
+            "content": f"An error occurred while processing the claim: {claim}"
+        }
+
 
 @app.route('/generate_visuals', methods=['POST'])
 def generate_visuals():
     try:
         data = request.json
-        pdf_name = data.get('pdf_name', 'Unknown File')  # Extract the PDF name
-        pdf_content = data.get('pdf_content', '')  # Extract the PDF content
+        pdf_name = data.get('pdf_name', 'Unknown File')
+        pdf_content = data.get('pdf_content', '')
 
         print(f"Received PDF Name: {pdf_name}")
-        print(f"Received PDF Content (truncated): {pdf_content[:100]}...")  # Print first 100 characters
-        if not data:
-            return jsonify({"error": "No data received"}), 400
+        print(f"Received PDF Content Length: {len(pdf_content)}")
 
-        report = data.get("report", "")
+        if not pdf_content.strip():
+            return jsonify({"error": "No PDF content provided."}), 400
 
-        print(f"Received report: {report}")  # Debugging log
-
-        # Summarize and process
+        # Generate summary
         summary = generate_summary(pdf_content)
-        print(f"Generated summary: {summary}")  # Debugging log
 
-        extracted_data = process_report(report)
+        # Extract claims
+        claims = retrieve_important_claims(pdf_content)
 
+        # Extract URL links
         extracted_urls = retrieve_URL_links(pdf_content)
-        print(f"Retrieved URL links: {extracted_urls}")  # Debugging log
 
-        # Visual configurations
-        visuals = [
-            {
-                "id": "info",
-                "type": "text-box",
-                "title": "PDF Information",
-                "details": f"PDF Name: {pdf_name}",
-                "size": {"columns": 4, "rows": 1}  # Stack vertically
-            },
-            {
-                "id": "urls",
-                "type": "text-box",
-                "title": "Associated URLs",
-                "details": extracted_urls,  # Display URLs and reasons
-                "size": {"columns": 4, "rows": 1},  # Stack vertically below "Info"
-            },
-            {
-                "id": "summary",
-                "type": "text-box",
-                "title": "Summary",
-                "details": summary,
-                "size": {"columns": 8, "rows": 2}  # Positioned to the right
-            },
-            {
-                "id": "chart1",
-                "type": "pie",
-                "title": "Key Insights Distribution",
-                "data": [{"value": 30, "name": "Category A"}, {"value": 70, "name": "Category B"}],
-                "title": "Key Insights Distribution",
-                "description": "This pie chart shows the distribution of key insights across different categories.",
-                "size": {"columns": 4, "rows": 4}
-            },
-            {
-                "id": "chart2",
-                "type": "line",
-                "title": "Dates in Report",
-                "data": {"categories": extracted_data["dates"], "values": [10] * len(extracted_data["dates"])},
-                "title": "Dates in Report",
-                "description": "This line chart illustrates the trends of values over the months of January, February, and March.",
-                "size": {"columns": 5, "rows": 4}
-            },
-            {
-                "id": "chart3",
-                "type": "bar",
-                "title": "Numbers Mentioned in Report",
-                "data": {"categories": extracted_data["numbers"], "values": [int(num.strip('%')) if '%' in num else int(num) for num in extracted_data["numbers"]]},
-                "title": "Numbers Mentioned in Report",
-                "description": "This bar chart shows the numbers mentioned in the report.",
-                "size": {"columns": 5, "rows": 4}
-            },
-            {
-                "id": "map1",
-                "type": "map",
-                "title": "Geographical Distribution",
-                "description": "This map shows various locations with their respective values.",
-                "zoom": 10,   #Optional zoom level
-                "data": [
-                    { "name": "Clementi", "latitude": 1.3151, "longitude": 103.7707, "value": 100 },
-                    { "name": "Tampines", "latitude": 1.3521, "longitude": 103.943, "value": 200 },
-                    { "name": "Jurong", "latitude": 1.333, "longitude": 103.706, "value": 150 }
-                ],
-                "size": { "columns":4, "rows": 4 }
-            }
+        # Assign visualization for each claim
+        dynamic_visuals = []
+        for claim in claims:
+            visualization = data_assignment(claim)  # Get visualization data for each claim
+            if isinstance(visualization, dict) and "type" in visualization and "data" in visualization:
+                visual_config = {
+                    "id": f"vis_{len(dynamic_visuals) + 1}",
+                    "type": visualization["type"],
+                    "title": visualization["title"],  # Use the title from the visualization
+                    "data": visualization["data"],
+                    "description": claim,
+                    "size": {"columns": 4, "rows": 4}  # Example size, adjust as needed
+                }
+                dynamic_visuals.append(visual_config)
 
-        ]
-        return jsonify(visuals)
+        # Add summary and URL visuals
+        dynamic_visuals.insert(0, {
+            "id": "info",
+            "type": "text-box",
+            "title": "PDF Information",
+            "details": f"PDF Name: {pdf_name}",
+            "size": {"columns": 4, "rows": 2}
+        })
+        dynamic_visuals.insert(1, {
+            "id": "urls",
+            "type": "text-box",
+            "title": "Extracted URLs",
+            "details": extracted_urls,
+            "size": {"columns": 4, "rows": 2}
+        })
+        dynamic_visuals.insert(2, {
+            "id": "summary",
+            "type": "text-box",
+            "title": "Summary",
+            "details": summary,
+            "size": {"columns": 8, "rows": 2}
+        })
+
+        return jsonify(dynamic_visuals)
     except Exception as e:
         print(f"Error: {e}")
         return jsonify({"error": str(e)}), 500
-
 
 @app.route('/')
 def index():
