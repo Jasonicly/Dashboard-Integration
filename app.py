@@ -6,7 +6,7 @@ import re
 app = Flask(__name__)
 CORS(app)
 
-openai.api_key = "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"  # Replace with your OpenAI API key
+openai.api_key = ""  # Replace with your OpenAI API key
 
 def generate_summary(text):
     try:
